@@ -31,7 +31,7 @@ ansible_user=ubuntu
 
 1. Install Kubernetes dependencies on all nodes:
 ```bash
-ansible-playbook -i hosts.ini dependencies.yml
+ansible-playbook -i hosts.ini dependencies.yaml
 ```
 This playbook:
 - Disables swap
@@ -42,7 +42,7 @@ This playbook:
 
 2. Initialize the master node:
 ```bash
-ansible-playbook -i hosts.ini master.yml
+ansible-playbook -i hosts.ini master.yaml
 ```
 This playbook:
 - Initializes the Kubernetes control plane
@@ -51,7 +51,7 @@ This playbook:
 
 3. Join worker nodes:
 ```bash
-ansible-playbook -i hosts.ini worker.yml
+ansible-playbook -i hosts.ini worker.yaml
 ```
 This playbook:
 - Retrieves the join command from the master
