@@ -1,0 +1,62 @@
+- hosts: master
+  become: yes
+  tasks:
+
+    - name: Create an empty kubeadm configuration file
+      copy:
+        content: ""
+        dest: /etc/kubernetes/kubeadm-config.yaml
+        force: no
+
+    - name: Configure kubeadm with container runtime and cgroup driver
+      blockinfile:
+        path: /etc/kubernetes/kubeadm-config.yaml
+        block: |
+          kind: ClusterConfiguration
+          apiVersion: kubeadm.k8s.io/v1beta3
+          networking:
+            podSubnet: "10.244.0.0/16"
+          ---
+          kind: KubeletConfiguration
+          apiVersion: kubelet.config.k8s.io/v1beta1
+          runtimeRequestTimeout: "15m"
+          cgroupDriver: "systemd"
+          systemReserved:
+            cpu: 100m
+            memory: 350M
+          kubeReserved:
+            cpu: 100m
+            memory: 50M
+          enforceNodeAllocatable:
+            - pods
+
+    - name: Initialize the Kubernetes cluster (this may take time)
+      shell: kubeadm init --config /etc/kubernetes/kubeadm-config.yaml >> cluster_initialized.log
+      args:
+        chdir: /home/ubuntu
+        creates: cluster_initialized.log
+
+    - name: Create .kube directory for Ubuntu user
+      file:
+        path: /home/ubuntu/.kube
+        state: directory
+        mode: '0755'
+        owner: ubuntu
+        group: ubuntu
+
+    - name: Copy admin.conf to the user's kubeconfig
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ubuntu/.kube/config
+        remote_src: yes
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+
+    - name: Install Flannel Pod network
+      become: yes
+      become_user: ubuntu
+      shell: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml >> pod_network_setup.log
+      args:
+        chdir: /home/ubuntu
+        creates: pod_network_setup.log
