@@ -1,0 +1,141 @@
+- hosts: master,workers
+  become: yes
+  tasks:
+
+    - name: Update APT packages
+      apt:
+        update_cache: yes
+
+    - name: Disable SWAP (Kubeadm requirement)
+      shell: swapoff -a
+
+    - name: Disable SWAP in fstab (Kubeadm requirement)
+      replace:
+        path: /etc/fstab
+        regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+        replace: '# \1'
+
+    - name: Load required kernel modules for Containerd
+      copy:
+        dest: /etc/modules-load.d/containerd.conf
+        content: |
+          overlay
+          br_netfilter
+
+    - name: Configure sysctl parameters for Kubernetes
+      copy:
+        dest: /etc/sysctl.d/99-kubernetes-cri.conf
+        content: |
+          net.bridge.bridge-nf-call-iptables  = 1
+          net.ipv4.ip_forward                 = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+
+    - name: Apply sysctl parameters without reboot
+      command: sysctl --system
+
+    - name: Install APT Transport HTTPS and dependencies
+      apt:
+        name: 
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+        state: present
+
+    - name: Add Docker apt-key
+      get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker-apt-keyring.asc
+        mode: '0644'
+        force: true
+
+    - name: Add Docker’s APT repository
+      apt_repository:
+        repo: "deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }} signed-by=/etc/apt/keyrings/docker-apt-keyring.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+        update_cache: yes
+
+    - name: Add Kubernetes apt-key
+      get_url:
+        url: https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key
+        dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+        mode: '0644'
+        force: true
+
+    - name: Add Kubernetes’ APT repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /"
+        state: present
+        update_cache: yes
+
+    - name: Install Containerd
+      apt:
+        name: containerd.io
+        state: present
+
+    - name: Create Containerd configuration directory
+      file:
+        path: /etc/containerd
+        state: directory
+
+    - name: Generate Containerd default configuration
+      shell: /usr/bin/containerd config default > /etc/containerd/config.toml
+
+    - name: Configure systemd cgroup driver for Containerd
+      replace:
+        path: /etc/containerd/config.toml
+        regexp: 'SystemdCgroup = false'
+        replace: 'SystemdCgroup = true'
+
+    - name: Restart and enable Containerd service
+      systemd:
+        name: containerd
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Install Kubelet
+      apt:
+        name: kubelet=1.30.*
+        state: present
+        update_cache: yes
+
+    - name: Install Kubeadm
+      apt:
+        name: kubeadm=1.30.*
+        state: present
+
+    - name: Enable Kubelet service
+      systemd:
+        name: kubelet
+        enabled: yes
+
+    - name: Load br_netfilter kernel module
+      modprobe:
+        name: br_netfilter
+        state: present
+
+    - name: Set bridge-nf-call-iptables
+      sysctl:
+        name: net.bridge.bridge-nf-call-iptables
+        value: 1
+
+    - name: Set IP forwarding
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: 1
+    - name: Create .kube directory for Ubuntu user
+      file:
+        path: /home/ubuntu/.kube
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+- hosts: master
+  become: yes
+  tasks:
+    - name: Install Kubectl
+      apt:
+        name: kubectl=1.30.*
+        state: present
+        force: yes  # Allow downgrades if necessary

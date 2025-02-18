@@ -1,16 +1,30 @@
 # kubernetes-playbooks
 
-Ansible playbooks that create a single-master Kubernetes 1.30 cluster on Ubuntu 24.04 LTS nodes.
+Ansible playbooks that automate Kubernetes deployment on Ubuntu 24.04 LTS.
 
-## Prerequisites
+## 📂 Playbook Structure
 
+- **Single-Master Deployment** (Basic setup)
+  - Playbooks are in the root directory.
+  - Deploys a single control-plane node.
+- **Multi-Master Deployment (HA)** (Advanced setup)
+  - Playbooks are inside `playbooks/multi-master/`
+  - Uses HAProxy and multiple control-plane nodes.
+
+---
+
+## **🔹 Prerequisites**
 - Ansible and Python3 installed on the local machine
 - SSH access to your Ubuntu 24.04 nodes
-- The nodes should be provisioned (either through OpenStack, other cloud providers, or on-premise)
+- The nodes should be provisioned (OpenStack, other cloud providers, or on-premise)
+- Unique **hostnames** for each node (`master-1`, `master-2`, etc.)
 
-## Inventory Setup
+---
 
-The playbooks use an inventory file (`hosts.ini`) to define the master and worker nodes:
+## **🔹 Single-Master Deployment**  
+
+### **📝 Inventory Setup**
+The `hosts.ini` file defines the master and worker nodes:
 
 ```ini
 [master]
@@ -22,55 +36,91 @@ worker2 ansible_host=192.168.1.171
 
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3
+ansible_ssh_private_key_file=/path/to/your/key.pem
+ansible_user=ubuntu
+```
+
+### **🚀 Deploy the Cluster**
+1. Install dependencies:
+   ```bash
+   ansible-playbook -i hosts.ini dependencies.yaml
+   ```
+2. Initialize master node:
+   ```bash
+   ansible-playbook -i hosts.ini master.yaml
+   ```
+3. Join worker nodes:
+   ```bash
+   ansible-playbook -i hosts.ini worker.yaml
+   ```
+4. Verify cluster:
+   ```bash
+   ssh -i /path/to/your/key.pem ubuntu@<master_ip>
+   kubectl get nodes
+   ```
+
+---
+
+## **🔹 Multi-Master HA Deployment**  
+
+📁 **Playbooks are under `playbooks/multi-master/`**  
+
+### **📝 Inventory Setup for Multi-Master**
+The `multi-hosts.ini` file defines the **multi-master** and **HAProxy** setup:
+
+```ini
+[master]
+master1 ansible_host=192.168.1.203
+master2 ansible_host=192.168.1.249
+master3 ansible_host=192.168.1.198
+[workers]
+worker1 ansible_host=192.168.1.153
+worker2 ansible_host=192.168.1.239
+[haproxy]
+server ansible_host=192.168.1.212
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
 ansible_ssh_extra_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
 ansible_ssh_private_key_file=/path/to/your/key.pem
 ansible_user=ubuntu
 ```
 
-## Deploying the Cluster
+### **🚀 Deploy the Multi-Master Cluster**
+1. Install dependencies:
+   ```bash
+   ansible-playbook -i multi-hosts.ini multi-master/dependencies.yaml
+   ```
+2. Configure HAProxy Load Balancer:
+   ```bash
+   ansible-playbook -i multi-hosts.ini multi-master/haproxy.yaml
+   ```
+3. Initialize the first master and Join additional masters :
+   ```bash
+   ansible-playbook -i multi-hosts.ini multi-master/multi-master.yaml
+   ```
+4. Join worker nodes:
+   ```bash
+   ansible-playbook -i multi-hosts.ini multi-master/workers.yaml
+   ```
+5. Verify cluster:
+   ```bash
+   ssh -i /path/to/your/key.pem ubuntu@<master_ip>
+   kubectl get nodes
+   ```
 
-1. Install Kubernetes dependencies on all nodes:
-```bash
-ansible-playbook -i hosts.ini dependencies.yml
+---
+
+## **✅ Verify HAProxy Load Balancing**
+After the multi-master setup, HAProxy should distribute requests across all masters.
+
+### **📊 Check HAProxy Stats**
+Access the HAProxy dashboard at:
 ```
-This playbook:
-- Disables swap
-- Loads necessary kernel modules
-- Configures system parameters
-- Installs containerd runtime
-- Installs Kubernetes components (kubelet, kubeadm)
-
-2. Initialize the master node:
-```bash
-ansible-playbook -i hosts.ini master.yml
+http://<haproxy-ip>:6443/stats
 ```
-This playbook:
-- Initializes the Kubernetes control plane
-- Sets up pod networking (Flannel)
-- Configures kubeconfig
+🔐 **Login credentials:** `admin / admin`
 
-3. Join worker nodes:
-```bash
-ansible-playbook -i hosts.ini worker.yml
-```
-This playbook:
-- Retrieves the join command from the master
-- Joins worker nodes to the cluster
-
-## Verify the Cluster
-
-SSH into the master node and check the cluster status:
-
-```bash
-ssh -i /path/to/your/key.pem ubuntu@<master_ip>
-kubectl get nodes
-# Expected output:
-NAME                STATUS   ROLES           AGE   VERSION
-master-controller   Ready    control-plane   10d   v1.30.9
-worker-controller   Ready    <none>          10d   v1.30.9
-```
-
-All nodes should show "Ready" status.
+---
 
 ## Testing External Access with Nginx
 
@@ -157,19 +207,30 @@ kubectl describe service nginx-service
 kubectl logs <pod-name>
 ```
 
-## Troubleshooting
+---
 
-If you can't access the Nginx service:
-1. Verify your security group/firewall allows traffic to port 30080
-2. Check pod status: `kubectl get pods`
-3. Check service status: `kubectl get svc`
-4. Check pod logs: `kubectl logs -l app=nginx`
+## **🛠 Troubleshooting**
+- **Multi-master not joining?**
+  - Check etcd members:  
+    ```bash
+    ETCDCTL_API=3 etcdctl member list --cacert /etc/kubernetes/pki/etcd/ca.crt --cert /etc/kubernetes/pki/etcd/server.crt --key /etc/kubernetes/pki/etcd/server.key
+    ```
+  - Remove unstarted members:
+    ```bash
+    ETCDCTL_API=3 etcdctl member remove <MEMBER_ID>
+    ```
+- **HAProxy not balancing?**
+  - Check logs:  
+    ```bash
+    sudo journalctl -u haproxy --no-pager
+    ```
+  - Ensure all masters are **reachable** via port `6443`.
 
-## Credits
+---
 
+## **📜 Credits**
 - Based on [kubernetes-playbooks](https://github.com/torgeirl/kubernetes-playbooks) by torgeirl, adapted for Ubuntu 24.04 LTS
-- Modified for single master deployment with external access testing
+---
 
-## License
-
+## **📜 License**
 See the LICENSE file for license rights and limitations (MIT).

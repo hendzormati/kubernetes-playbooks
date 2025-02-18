@@ -1,0 +1,40 @@
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+
+defaults
+    log global
+    mode tcp
+    option tcplog
+    option dontlognull
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
+
+frontend kubernetes-frontend
+    bind *:6443
+    mode tcp
+    option tcplog
+    default_backend kubernetes-backend
+    
+backend kubernetes-backend
+    mode tcp
+    option tcp-check
+    balance roundrobin
+    server master1 {{ hostvars['master1']['ansible_host'] }}:6443 check fall 3 rise 2
+    server master2 {{ hostvars['master2']['ansible_host'] }}:6443 check fall 3 rise 2
+    server master3 {{ hostvars['master3']['ansible_host'] }}:6443 check fall 3 rise 2
+# New frontend for HAProxy stats
+frontend haproxy-stats
+    bind *:8080  # Use port 8080 for the stats page
+    mode http
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+    stats auth admin:admin

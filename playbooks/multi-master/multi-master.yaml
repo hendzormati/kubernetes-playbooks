@@ -1,0 +1,171 @@
+- hosts: master
+  become: yes
+  tasks:
+
+    - name: Ensure /etc/kubernetes directory exists
+      file:
+        path: /etc/kubernetes
+        state: directory
+        mode: '0755'
+
+    - name: Create kubeadm config
+      copy:
+        dest: /etc/kubernetes/kubeadm-config.yaml
+        content: |
+          apiVersion: kubeadm.k8s.io/v1beta3
+          kind: ClusterConfiguration
+          kubernetesVersion: v1.30.0
+          controlPlaneEndpoint: "{{ hostvars['server']['ansible_host'] }}:6443"
+          networking:
+            podSubnet: "10.244.0.0/16"
+          ---
+          apiVersion: kubeadm.k8s.io/v1beta3
+          kind: InitConfiguration
+        mode: '0644'
+      when: inventory_hostname == "master1"
+
+    - name: Initialize first master
+      shell: |
+        kubeadm init --config /etc/kubernetes/kubeadm-config.yaml --upload-certs
+      args:
+        creates: /etc/kubernetes/admin.conf
+      register: kubeadm_init_result
+      when: inventory_hostname == "master1"
+
+    - name: Ensure kubeadm init was successful
+      fail:
+        msg: "kubeadm init failed! admin.conf not found."
+      when: inventory_hostname == "master1" and kubeadm_init_result.rc != 0
+
+    - name: Ensure admin.conf exists on master1
+      stat:
+        path: /etc/kubernetes/admin.conf
+      register: admin_conf_file
+      when: inventory_hostname == "master1"
+
+    - name: Copy admin.conf to ubuntu user if missing
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ubuntu/.kube/config
+        remote_src: yes
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      when: inventory_hostname == "master1" and admin_conf_file.stat.exists
+
+    - name: Ensure .kube directory exists on other masters
+      file:
+        path: /home/ubuntu/.kube
+        state: directory
+        mode: '0755'
+
+    - name: Copy admin.conf from master1 to all masters
+      fetch:
+        src: /home/ubuntu/.kube/config
+        dest: /tmp/admin.conf
+        flat: yes
+      delegate_to: master1
+      when: inventory_hostname == "master1"
+
+    - name: Distribute admin.conf to other masters
+      copy:
+        src: /tmp/admin.conf
+        dest: /home/ubuntu/.kube/config
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+      when: inventory_hostname != "master1"
+
+    - name: Ensure kubeconfig is in correct location for kubelet
+      copy:
+        src: /home/ubuntu/.kube/config
+        dest: /etc/kubernetes/admin.conf
+        remote_src: yes
+        owner: root
+        group: root
+        mode: '0644'
+      when: inventory_hostname != "master1"
+      
+    - name: Restart kubelet on all masters
+      systemd:
+        name: kubelet
+        state: restarted
+        enabled: yes
+
+    - name: Get join command for other masters
+      shell: kubeadm token create --print-join-command
+      register: join_command_raw
+      when: inventory_hostname == "master1"
+
+    - name: Ensure join command exists
+      fail:
+        msg: "Join command is missing!"
+      when: inventory_hostname == "master1" and join_command_raw.stdout == ""
+
+    - name: Get certificate key
+      shell: kubeadm init phase upload-certs --upload-certs | tail -n 1
+      register: cert_key_raw
+      when: inventory_hostname == "master1"
+
+    - name: Set join command fact on master1
+      set_fact:
+        master_join_command: "{{ join_command_raw.stdout }} --control-plane --certificate-key {{ cert_key_raw.stdout }}"
+      when: inventory_hostname == "master1"
+
+    - name: Wait for join command to be available
+      pause:
+        seconds: 10
+      when: inventory_hostname != "master1"
+
+    - name: Ensure master join command exists
+      fail:
+        msg: "Join command is missing!"
+      when: inventory_hostname != "master1" and hostvars['master1'].master_join_command is not defined
+
+    - name: Ensure kubelet is stopped before joining
+      systemd:
+        name: kubelet
+        state: stopped
+      when: inventory_hostname != "master1"
+      ignore_errors: yes
+
+    - name: Kill kubelet process if still running
+      shell: "pgrep -f kubelet && kill -9 $(pgrep -f kubelet) || true"
+      when: inventory_hostname != "master1"
+      ignore_errors: yes
+
+    - name: Ensure port 10250 is free
+      shell: |
+        lsof -i :10250 && kill -9 $(lsof -t -i :10250) || true
+      when: inventory_hostname != "master1"
+      ignore_errors: yes
+
+    - name: Join other masters if not already joined
+      shell: |
+        if ! test -f /etc/kubernetes/kubelet.conf; then
+          {{ hostvars['master1'].master_join_command }} >> /var/log/node_joined.txt
+        fi
+      args:
+        chdir: $HOME
+      when: inventory_hostname != "master1"
+
+    - name: Install CNI (Flannel)
+      become_user: ubuntu
+      become: yes
+      shell: |
+        kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml >> /home/ubuntu/cni_installed.txt
+      args:
+        creates: /home/ubuntu/cni_installed.txt
+      when: inventory_hostname == "master1"
+
+    - name: Wait for CNI to be ready
+      pause:
+        seconds: 30
+      when: inventory_hostname == "master1"
+
+    - name: Configure kubectl for ubuntu user on other masters
+      shell: |
+        mkdir -p /home/ubuntu/.kube
+        cp -f /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
+        chown -R ubuntu:ubuntu /home/ubuntu/.kube
+      when: inventory_hostname != "master1"

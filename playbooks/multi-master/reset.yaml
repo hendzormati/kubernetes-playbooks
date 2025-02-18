@@ -1,0 +1,91 @@
+- hosts: all
+  become: yes
+  tasks:
+
+    - name: Stop all Kubernetes-related services
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+      with_items:
+        - kubelet
+        - etcd
+        - containerd
+        - docker
+        - haproxy
+      ignore_errors: yes
+
+    - name: Identify all running Kubernetes-related processes
+      shell: "pgrep -f 'kubelet|etcd|kube-apiserver|kube-controller-manager|kube-scheduler'"
+      register: kube_processes
+      ignore_errors: yes
+
+    - name: Kill all identified Kubernetes processes
+      shell: "kill -9 {{ kube_processes.stdout_lines | join(' ') }}"
+      when: kube_processes.stdout_lines | length > 0
+      ignore_errors: yes
+
+    - name: Ensure port 10250 is free
+      shell: |
+        lsof -i :10250 && kill -9 $(lsof -t -i :10250) || true
+      ignore_errors: yes
+
+    - name: Unmount active kubelet directories
+      shell: |
+        mount | grep '/var/lib/kubelet' && umount -l /var/lib/kubelet || true
+      ignore_errors: yes
+
+    - name: Remove kubelet configuration
+      file:
+        path: /var/lib/kubelet
+        state: absent
+      ignore_errors: yes
+
+    - name: Remove old etcd data
+      file:
+        path: /var/lib/etcd
+        state: absent
+
+    - name: Remove Kubernetes config files
+      file:
+        path: /etc/kubernetes
+        state: absent
+
+    - name: Reset kubeadm (clear all cluster data)
+      shell: kubeadm reset -f
+      ignore_errors: yes
+
+    - name: Remove Kubernetes packages
+      apt:
+        name:
+          - kubeadm
+          - kubectl
+          - kubelet
+          - kubernetes-cni
+        state: absent
+      ignore_errors: yes
+
+    - name: Auto-remove unnecessary dependencies
+      apt:
+        autoremove: yes
+
+    - name: Flush iptables (clear network rules)
+      shell: iptables -F
+      ignore_errors: yes
+
+    - name: Remove HAProxy config (if needed)
+      file:
+        path: /etc/haproxy/haproxy.cfg
+        state: absent
+      ignore_errors: yes
+
+    - name: Clear any remaining networking configurations
+      shell: |
+        ip link delete cni0 || true
+        ip link delete flannel.1 || true
+        ip link delete docker0 || true
+      ignore_errors: yes
+
+    - name: Reboot the system for a full reset
+      reboot:
+        msg: "Rebooting to finalize Kubernetes reset."
+        pre_reboot_delay: 5

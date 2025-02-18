@@ -1,0 +1,30 @@
+- hosts: haproxy
+  become: yes
+  tasks:
+
+    - name: Install HAProxy
+      apt:
+        name: haproxy
+        state: present
+        update_cache: yes
+
+    - name: Copy HAProxy configuration file from template
+      template:
+        src: templates/haproxy.cfg.j2   # Path inside your repo
+        dest: /etc/haproxy/haproxy.cfg  # Destination on the target machine
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart HAProxy
+
+    - name: Enable and Start HAProxy
+      systemd:
+        name: haproxy
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: Restart HAProxy
+      systemd:
+        name: haproxy
+        state: restarted

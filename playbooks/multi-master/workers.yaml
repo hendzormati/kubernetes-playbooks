@@ -1,0 +1,23 @@
+- hosts: master
+  become: yes
+  tasks:
+    - name: Get join command for workers
+      shell: kubeadm token create --print-join-command
+      register: worker_join_command
+      when: inventory_hostname == "master1"
+
+- hosts: workers
+  become: yes
+  tasks:
+    - name: Wait for HAProxy
+      wait_for:
+        host: "{{ hostvars['server']['ansible_host'] }}"
+        port: 6443
+        timeout: 300
+        state: started
+
+    - name: Join workers to cluster
+      shell: "{{ hostvars['master1']['worker_join_command'].stdout }} >> node_joined.txt"
+      args:
+        chdir: $HOME
+        creates: node_joined.txt
