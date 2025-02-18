@@ -85,42 +85,50 @@ ansible_ssh_private_key_file=/path/to/your/key.pem
 ansible_user=ubuntu
 ```
 
-### **🚀 Deploy the Multi-Master Cluster**
-1. Install dependencies:
-   ```bash
-   ansible-playbook -i multi-hosts.ini multi-master/dependencies.yaml
-   ```
-2. Configure HAProxy Load Balancer:
-   ```bash
-   ansible-playbook -i multi-hosts.ini multi-master/haproxy.yaml
-   ```
-3. Initialize the first master and Join additional masters :
-   ```bash
-   ansible-playbook -i multi-hosts.ini multi-master/multi-master.yaml
-   ```
-4. Join worker nodes:
-   ```bash
-   ansible-playbook -i multi-hosts.ini multi-master/workers.yaml
-   ```
-5. Verify cluster:
-   ```bash
-   ssh -i /path/to/your/key.pem ubuntu@<master_ip>
-   kubectl get nodes
-   ```
+## Deploying the Cluster
 
----
-
-## **✅ Verify HAProxy Load Balancing**
-After the multi-master setup, HAProxy should distribute requests across all masters.
-
-### **📊 Check HAProxy Stats**
-Access the HAProxy dashboard at:
+1. Install Kubernetes dependencies on all nodes:
+```bash
+ansible-playbook -i hosts.ini dependencies.yml
 ```
-http://<haproxy-ip>:6443/stats
-```
-🔐 **Login credentials:** `admin / admin`
+This playbook:
+- Disables swap
+- Loads necessary kernel modules
+- Configures system parameters
+- Installs containerd runtime
+- Installs Kubernetes components (kubelet, kubeadm)
 
----
+2. Initialize the master node:
+```bash
+ansible-playbook -i hosts.ini master.yml
+```
+This playbook:
+- Initializes the Kubernetes control plane
+- Sets up pod networking (Flannel)
+- Configures kubeconfig
+
+3. Join worker nodes:
+```bash
+ansible-playbook -i hosts.ini worker.yml
+```
+This playbook:
+- Retrieves the join command from the master
+- Joins worker nodes to the cluster
+
+## Verify the Cluster
+
+SSH into the master node and check the cluster status:
+
+```bash
+ssh -i /path/to/your/key.pem ubuntu@<master_ip>
+kubectl get nodes
+# Expected output:
+NAME                STATUS   ROLES           AGE   VERSION
+master-controller   Ready    control-plane   10d   v1.30.9
+worker-controller   Ready    <none>          10d   v1.30.9
+```
+
+All nodes should show "Ready" status.
 
 ## Testing External Access with Nginx
 
