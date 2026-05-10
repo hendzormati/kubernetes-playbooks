@@ -7,12 +7,12 @@ Here's the traffic overview for this repository:
 
 - 👁️ **Total Views** Since Creation: **400** views
 - 🔄 **Total Clones** Since Creation: **154** clones
-- 📈 **Recent Views** (Last 14 days): **6** views
-- 📊 **Recent Clones** (Last 14 days): **52** clones
+- 📈 **Recent Views** (Last 14 days): **5** views
+- 📊 **Recent Clones** (Last 14 days): **26** clones
 
 ---
 
-Last traffic data update: **Sun May 03 2026 03:37:30 CET**
+Last traffic data update: **Sun May 10 2026 03:40:04 CET**
 
 ---
 ## 📂 Playbook Structure
