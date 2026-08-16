@@ -5,14 +5,14 @@ Ansible playbooks that automate Kubernetes deployment on Ubuntu 24.04 LTS.
 
 Here's the traffic overview for this repository:
 
-- 👁️ **Total Views** Since Creation: **407** views
+- 👁️ **Total Views** Since Creation: **408** views
 - 🔄 **Total Clones** Since Creation: **197** clones
-- 📈 **Recent Views** (Last 14 days): **2** views
-- 📊 **Recent Clones** (Last 14 days): **23** clones
+- 📈 **Recent Views** (Last 14 days): **3** views
+- 📊 **Recent Clones** (Last 14 days): **15** clones
 
 ---
 
-Last traffic data update: **Sun Aug 09 2026 02:21:59 CET**
+Last traffic data update: **Sun Aug 16 2026 02:04:17 CET**
 
 ---
 ## 📂 Playbook Structure
